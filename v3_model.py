@@ -3,13 +3,14 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from tqdm import tqdm
 
 batch_size = 32 # how many sequences we process every forward and backwards pass
 block_size = 8 # maximum context length for predictions
 
-num_iterations = 3000
-eval_interval = 300
-learning_rate = 1e-2
+num_iterations = 20000
+eval_interval = 500
+learning_rate = 1e-4
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 print(f"Using {device}")
 eval_iterations = 200
@@ -62,6 +63,32 @@ def estimate_loss():
     model.train()
     return out
 
+class Head(nn.Module):
+    """ one head of self-attention """
+
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embed, head_size, bias=False)
+        self.query = nn.Linear(n_embed, head_size, bias=False)
+        self.value = nn.Linear(n_embed, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+    def forward(self, x):
+        B, T, C = x.shape
+        k = self.key(x)
+        q = self.query(x)
+
+        # compute attention scores ("affinities")
+        weights = q @ k.transpose(-2,-1) * C**-0.5 # (B,T,C) @ (B,C,T) --> (B,T,T)
+        weights = weights.masked_fill(self.tril[:T,:T] == 0, float('-inf')) # (B,T,T)
+        weights = F.softmax(weights, dim=-1) # (B,T,T)
+
+        # perform the wighted aggregation of the values
+        v = self.value(x) # (B,T,C)
+        out = weights @ v # (B,T,T) @ (B, T, C) -> (B, T, C)
+        return out
+
+
 
 # super simple bigram model
 class BigramLanguageModel(nn.Module):
@@ -74,7 +101,8 @@ class BigramLanguageModel(nn.Module):
 
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
         # we need a linear layer to go from token embeddings to logits
-        self.language_model_head = nn.Linear(n_embed, vocab_size)
+        self.sa_head = Head(n_embed)
+        self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
@@ -82,7 +110,8 @@ class BigramLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx) # (B,T,C)
         positional_embeddings = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
         x = positional_embeddings + token_embeddings #(B,T,C)
-        logits = self.language_model_head(x) # (B,T,vocab_size)
+        x = self.sa_head(x)
+        logits = self.lm_head(x) # (B,T,vocab_size)
 
 
         if targets is None:
@@ -98,8 +127,10 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is (B, T) array of indices in the current context
         for _ in range(max_new_tokens):
+            # crop context to block_size tokens
+            idx_cond = idx[:, -block_size:]
             # get the predictions
-            logits, loss = self(idx)
+            logits, loss = self(idx_cond)
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
             # apply softmax to get probabilities
@@ -116,7 +147,7 @@ m = model.to(device)
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(num_iterations):
+for iter in tqdm(range(num_iterations)):
 
     # every once in a while evaluate the loss on train and val sets
     if iter % eval_interval == 0:
