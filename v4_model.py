@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
+import time
+import os
 
 batch_size = 64 # how many sequences we process every forward and backwards pass
 block_size = 256 # maximum context length for predictions
@@ -11,15 +13,16 @@ block_size = 256 # maximum context length for predictions
 num_iterations = 5000
 eval_interval = 500
 learning_rate = 3e-4
-device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-print(f"Using {device}")
+# device = 'mps' if torch.backends.mps.is_available() else 'cpu'
+    
+
 eval_iterations = 200
 n_embed = 384
 n_head = 6
 n_layer = 6
 dropout = 0.2
 
-torch.manual_seed(1337)
+# torch.manual_seed(1337)
 
 # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
@@ -30,8 +33,8 @@ vocab_size = len(chars)
 
 # translating characters into integers
 
-stoi = { ch:i for i,ch in enumerate(chars)}
-itos = { i:ch for i,ch in enumerate(chars)}
+stoi = { ch:i for i,ch in enumerate(chars) }
+itos = { i:ch for i,ch in enumerate(chars) }
 
 encode = lambda s: [stoi[c] for c in s]          # encoder: String -> List[Ints]
 decode = lambda l: ''.join([itos[i] for i in l]) # decoder: List[Ints] -> String
@@ -43,7 +46,7 @@ train_data = data[:n]
 val_data = data[n:]
 
 # data loading
-def get_batch(split):
+def get_batch(split, device):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -53,17 +56,21 @@ def get_batch(split):
     return x, y
 
 @torch.no_grad()
-def estimate_loss():
+def estimate_loss(device):
     out = {}
+
     model.eval()
+
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iterations)
         for k in range(eval_iterations):
-            X, Y = get_batch(split)
+            X, Y = get_batch(split, device)
             logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
+
     model.train()
+
     return out
 
 class Head(nn.Module):
@@ -88,7 +95,6 @@ class Head(nn.Module):
         weights = weights.masked_fill(self.tril[:T,:T] == 0, float('-inf')) # (B,T,T)
         weights = F.softmax(weights, dim=-1) # (B,T,T)
         weights = self.dropout(weights)
-
 
         # perform the wighted aggregation of the values
         v = self.value(x) # (B,T,C)
@@ -202,28 +208,82 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
         return idx
 
-model = BigramLanguageModel()
-m = model.to(device)
 
-# create a PyTorch optimizer
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+if __name__ == "__main__":
+    if torch.backends.mps.is_available():
+        # device = torch.device("mps")
+        device = "mps"
 
-for iter in tqdm(range(num_iterations)):
+        print(f"Using {device}")
+    else:
+        device = 'cpu'
+        print ("MPS device not found.")
 
-    # every once in a while evaluate the loss on train and val sets
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    model = BigramLanguageModel().to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    # sample a batch of data
-    xb, yb = get_batch('train')
+    checkpoint = torch.load('models/v4_1675802408_200_loss2.47.pt')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    losses = checkpoint['losses']
 
-    # evaluate the loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
 
-# generate from the model
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
+    print(f"putting {device} to model")
+
+
+    for iter in range(num_iterations):
+        timestamp = int(time.time())
+
+        st = time.monotonic()
+
+        if iter == 0:
+            print(f"initializing model....")
+            # losses = estimate_loss(device)
+
+
+            # print(f"iter: {iter}")
+
+
+        # print(f"test 0 ....")
+
+        # every once in a while evaluate the loss on train and val sets
+        if iter % eval_interval == 0 and iter > 0:
+            losses = estimate_loss(device)
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+
+        # print(f"test....")
+        
+
+        if ((iter % 100 == 0 or iter == num_iterations - 1) and iter != 0):
+            fn = f"models/v4_{timestamp}_{iter}_loss{losses['val']:.2f}.pt"
+            torch.save({
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'losses': losses
+
+            }, fn)
+
+            print(f"saved model {fn} with size {os.path.getsize(fn)}")
+            
+
+        # sample a batch of data
+        # print("Getting batch....")
+        xb, yb = get_batch('train', device)
+
+        # evaluate the loss
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
+
+        et = time.monotonic() - st
+        if iter % 10 == 0:
+            print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec, train_loss: {loss:.2f} ")
+
+            # generate from the model
+            context = torch.randn((1, 1), dtype=torch.long, device=device)
+            print(decode(model.generate(context, max_new_tokens=20)[0].tolist()))
+
+
+        
