@@ -1,4 +1,4 @@
-# https://github.com/karpathy/ng-video-lecture/blob/master/bigram.py
+# modified version of https://github.com/karpathy/ng-video-lecture/blob/master/gpt.py
 
 import torch
 import torch.nn as nn
@@ -7,14 +7,14 @@ from tqdm import tqdm
 import time
 import os
 
+# ----------- Hyper Parameters -----------
+
 batch_size = 64 # how many sequences we process every forward and backwards pass
 block_size = 256 # maximum context length for predictions
 
 num_iterations = 5000
 eval_interval = 500
 learning_rate = 3e-4
-# device = 'mps' if torch.backends.mps.is_available() else 'cpu'
-    
 
 eval_iterations = 200
 n_embed = 384
@@ -22,30 +22,31 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 
-# torch.manual_seed(1337)
+# ----------- Read File -----------
 
-# wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
 
+# ----------- Encode/Decode -----------
 # translating characters into integers
 
 stoi = { ch:i for i,ch in enumerate(chars) }
 itos = { i:ch for i,ch in enumerate(chars) }
+encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
+decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
-encode = lambda s: [stoi[c] for c in s]          # encoder: String -> List[Ints]
-decode = lambda l: ''.join([itos[i] for i in l]) # decoder: List[Ints] -> String
+# ----------- Train/Val/Test Splits -----------
 
-# Train and test splits
 data = torch.tensor(encode(text), dtype=torch.long)
 n = int(0.9*len(data)) # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
 
-# data loading
+# ----------- Data Loading -----------
+
 def get_batch(split, device):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
@@ -72,6 +73,8 @@ def estimate_loss(device):
     model.train()
 
     return out
+
+# ----------- Model Classes -----------
 
 class Head(nn.Module):
     """ one head of self-attention """
@@ -147,7 +150,7 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x))
         return x
 
-class BigramLanguageModel(nn.Module):
+class GPT(nn.Module):
 
     def __init__(self):
         super().__init__()
@@ -208,54 +211,43 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
         return idx
 
+# ----------- Run via Command Line -----------
 
 if __name__ == "__main__":
     if torch.backends.mps.is_available():
-        # device = torch.device("mps")
         device = "mps"
-
         print(f"Using {device}")
     else:
         device = 'cpu'
         print ("MPS device not found.")
 
-    model = BigramLanguageModel().to(device)
+    model = GPT().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-    checkpoint = torch.load('models/v4_1675802408_200_loss2.47.pt')
+    losses = None
+    checkpoint = torch.load('models/v4_1675811956_1950_loss1.56.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     losses = checkpoint['losses']
 
-
-    print(f"putting {device} to model")
-
-
     for iter in range(num_iterations):
         timestamp = int(time.time())
+        
+        print(f"initializing model....")
 
         st = time.monotonic()
 
-        if iter == 0:
-            print(f"initializing model....")
-            # losses = estimate_loss(device)
+        if iter == 0 and losses == None:
+            losses = estimate_loss(device)
 
-
-            # print(f"iter: {iter}")
-
-
-        # print(f"test 0 ....")
 
         # every once in a while evaluate the loss on train and val sets
         if iter % eval_interval == 0 and iter > 0:
             losses = estimate_loss(device)
             print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-
-
-        # print(f"test....")
         
 
-        if ((iter % 100 == 0 or iter == num_iterations - 1) and iter != 0):
+        if ((iter % 150 == 0 or iter == num_iterations - 1) and iter > 0):
             fn = f"models/v4_{timestamp}_{iter}_loss{losses['val']:.2f}.pt"
             torch.save({
             'model_state_dict': model.state_dict(),
@@ -268,7 +260,6 @@ if __name__ == "__main__":
             
 
         # sample a batch of data
-        # print("Getting batch....")
         xb, yb = get_batch('train', device)
 
         # evaluate the loss
@@ -278,12 +269,11 @@ if __name__ == "__main__":
         optimizer.step()
 
         et = time.monotonic() - st
+        
         if iter % 10 == 0:
             print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec, train_loss: {loss:.2f} ")
 
             # generate from the model
-            context = torch.randn((1, 1), dtype=torch.long, device=device)
-            print(decode(model.generate(context, max_new_tokens=20)[0].tolist()))
+            context = torch.zeros((1, 1), dtype=torch.long, device=device)
+            print(decode(model.generate(context, max_new_tokens=50)[0].tolist()))
 
-
-        

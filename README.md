@@ -6,11 +6,16 @@
 
 ![v4 output](v4_output.png)
 
-
 Todo:
 - web interface
+    - Svelte frontend
+    - Flask backend
 - custom authors?
-- tqdm
-- gpt file
-- timeit for steps
+    - JK Rowling
+    - Steven King
+    - Leonardo DaVinci
 - graph loss --> weights and biases?
+- OpenAI Text Embedding
+[x] tqdm
+[x] gpt file
+[x] timeit for steps
