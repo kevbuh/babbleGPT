@@ -8,9 +8,8 @@ import time
 import os
 
 # ----------- Hyper Parameters -----------
-
-batch_size = 64 # how many sequences we process every forward and backwards pass
-block_size = 256 # maximum context length for predictions
+batch_size = 64         # how many sequences we process every forward and backwards pass
+block_size = 256        # maximum context length for predictions
 
 num_iterations = 5000
 eval_interval = 500
@@ -35,18 +34,16 @@ vocab_size = len(chars)
 
 stoi = { ch:i for i,ch in enumerate(chars) }
 itos = { i:ch for i,ch in enumerate(chars) }
-encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
-decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+encode = lambda s: [stoi[c] for c in s]             # encoder: take a string, output a list of integers
+decode = lambda l: ''.join([itos[i] for i in l])    # decoder: take a list of integers, output a string
 
 # ----------- Train/Val/Test Splits -----------
-
 data = torch.tensor(encode(text), dtype=torch.long)
 n = int(0.9*len(data)) # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
 
 # ----------- Data Loading -----------
-
 def get_batch(split, device):
     # generate a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data
@@ -75,7 +72,6 @@ def estimate_loss(device):
     return out
 
 # ----------- Model Classes -----------
-
 class Head(nn.Module):
     """ one head of self-attention """
 
@@ -94,14 +90,14 @@ class Head(nn.Module):
         q = self.query(x)
 
         # compute attention scores ("affinities")
-        weights = q @ k.transpose(-2,-1) * C**-0.5 # (B,T,C) @ (B,C,T) --> (B,T,T)
+        weights = q @ k.transpose(-2,-1) * C**-0.5                          # (B,T,C) @ (B,C,T) --> (B,T,T)
         weights = weights.masked_fill(self.tril[:T,:T] == 0, float('-inf')) # (B,T,T)
-        weights = F.softmax(weights, dim=-1) # (B,T,T)
+        weights = F.softmax(weights, dim=-1)                                # (B,T,T)
         weights = self.dropout(weights)
 
         # perform the wighted aggregation of the values
-        v = self.value(x) # (B,T,C)
-        out = weights @ v # (B,T,T) @ (B, T, C) -> (B, T, C)
+        v = self.value(x)   # (B,T,C)
+        out = weights @ v   # (B,T,T) @ (B, T, C) -> (B, T, C)
         return out
 
 
@@ -121,6 +117,8 @@ class MultiHeadAttention(nn.Module):
 
 
 class FeedForward(nn.Module):
+    """ Transformer Feed Forward NN """
+
     def __init__(self, n_embed):
         super().__init__()
         self.net = nn.Sequential(
@@ -134,7 +132,7 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 class Block(nn.Module):
-    """ Transformer Block """
+    """ Single Transformer Block """
 
     def __init__(self, n_embed, n_head):
         super().__init__()
@@ -157,32 +155,27 @@ class GPT(nn.Module):
 
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embed)
-
         self.position_embedding_table = nn.Embedding(block_size, n_embed)
-        # we need a linear layer to go from token embeddings to logits
 
-        # self.blocks = nn.Sequential(
-        #     Block(n_embed, n_head=4),
-        #     Block(n_embed, n_head=4),
-        #     Block(n_embed, n_head=4),
-        #     nn.LayerNorm(n_embed)
-        # )
+        # Blocks, Layer Norm, Self-Attention Heads, Feed Forward Netwrok
         self.blocks = nn.Sequential(*[Block(n_embed, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embed)
         self.sa_heads = MultiHeadAttention(4, n_embed// 4)
         self.ffwd = FeedForward(n_embed)
+
+        # we need a linear layer to go from token embeddings to logits
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
+
         # idx and targets are both (B,T) tensor of integers
-        token_embeddings = self.token_embedding_table(idx) # (B,T,C)
-        positional_embeddings = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
-        x = positional_embeddings + token_embeddings #(B,T,C)
+        token_embeddings = self.token_embedding_table(idx)                                      # (B,T,C)
+        positional_embeddings = self.position_embedding_table(torch.arange(T, device=device))   # (T,C)
+        x = positional_embeddings + token_embeddings                                            #(B,T,C)
         x = self.blocks(x)
         x = self.ln_f(x)
-        logits = self.lm_head(x) # (B,T,vocab_size)
-
+        logits = self.lm_head(x)                                                                # (B,T,vocab_size)
 
         if targets is None:
             loss = None
@@ -199,20 +192,25 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             # crop context to block_size tokens
             idx_cond = idx[:, -block_size:]
+
             # get the predictions
             logits, loss = self(idx_cond)
+
             # focus only on the last time step
             logits = logits[:, -1, :] # becomes (B, C)
+
             # apply softmax to get probabilities
             probs = F.softmax(logits, dim=-1) # (B, C)
+
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1) # (B, 1)
+
             # append sampled index to the running sequence
             idx = torch.cat((idx, idx_next), dim=1) # (B, T+1)
+            
         return idx
 
 # ----------- Run via Command Line -----------
-
 if __name__ == "__main__":
     if torch.backends.mps.is_available():
         device = "mps"
@@ -253,7 +251,6 @@ if __name__ == "__main__":
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'losses': losses
-
             }, fn)
 
             print(f"saved model {fn} with size {os.path.getsize(fn)}")
@@ -269,7 +266,7 @@ if __name__ == "__main__":
         optimizer.step()
 
         et = time.monotonic() - st
-        
+
         if iter % 10 == 0:
             print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec, train_loss: {loss:.2f} ")
 
