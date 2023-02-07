@@ -7,15 +7,17 @@
 ![v4 output](v4_output.png)
 
 Todo:
-- web interface
+- [ ] web interface
     - Svelte frontend
     - Flask backend
-- custom authors?
+- [ ] custom authors?
     - JK Rowling
     - Steven King
     - Leonardo DaVinci
-- graph loss --> weights and biases?
-- OpenAI Text Embedding
-[x] tqdm
-[x] gpt file
-[x] timeit for steps
+- [ ] graph loss --> weights and biases?
+    - https://wandb.ai
+- [ ] OpenAI Text Embedding
+    - https://openai.com/blog/new-and-improved-embedding-model
+- [x] tqdm
+- [x] gpt file
+- [x] timeit for steps
