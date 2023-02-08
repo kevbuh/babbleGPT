@@ -7,6 +7,14 @@ from tqdm import tqdm
 import time
 import os
 
+device = None
+if torch.backends.mps.is_available():
+    device = "mps"
+    print(f"Using {device}")
+else:
+    device = "cpu"
+    print ("MPS device not found.")
+
 # ----------- Hyper Parameters -----------
 batch_size = 64         # how many sequences we process every forward and backwards pass
 block_size = 256        # maximum context length for predictions
@@ -212,12 +220,7 @@ class GPT(nn.Module):
 
 # ----------- Run via Command Line -----------
 if __name__ == "__main__":
-    if torch.backends.mps.is_available():
-        device = "mps"
-        print(f"Using {device}")
-    else:
-        device = 'cpu'
-        print ("MPS device not found.")
+    
 
     model = GPT().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -228,14 +231,13 @@ if __name__ == "__main__":
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     losses = checkpoint['losses']
 
+    # you can add tqdm() here
     for iter in range(num_iterations):
         timestamp = int(time.time())
-        
-        print(f"initializing model....")
-
         st = time.monotonic()
 
         if iter == 0 and losses == None:
+            print(f"initializing model....")
             losses = estimate_loss(device)
 
 
