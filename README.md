@@ -7,7 +7,8 @@
 ![v4 output](v4_output.png)
 
 Todo:
-- [ ] make infinite
+- [ ] fix 'hhhhhhhhhhhhhhhhhhh' bug
+- [ ] make infinite inference
 - [ ] web interface
     - Svelte frontend
     - Flask backend
