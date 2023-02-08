@@ -7,6 +7,7 @@
 ![v4 output](v4_output.png)
 
 Todo:
+- [ ] add easy way to get pretrained model for inference 
 - [ ] fix 'hhhhhhhhhhhhhhhhhhh' bug
 - [ ] make infinite inference
 - [ ] web interface
