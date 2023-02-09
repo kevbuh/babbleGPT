@@ -35,9 +35,10 @@ with open('harry_potter.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 chars = sorted(list(set(text)))
+total_chars = len(text)
 vocab_size = len(chars)
 
-print(f"char size, vocab size: (", chars, "),(", vocab_size,")")
+print(f"{total_chars},{vocab_size}")
 
 # ----------- Encode/Decode -----------
 # translating characters into integers
@@ -64,22 +65,18 @@ def get_batch(split, device):
     return x, y
 
 @torch.no_grad()
-def estimate_loss(device):
+def estimate_loss():
     out = {}
-
     model.eval()
-
     for split in ['train', 'val']:
-        losses = torch.zeros(eval_iterations)
-        for k in range(eval_iterations):
-            X, Y = get_batch(split, device)
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            X, Y = get_batch(split)
             logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
-
     model.train()
-
-    return out
+    return 
 
 # ----------- Model Classes -----------
 class Head(nn.Module):
@@ -100,7 +97,7 @@ class Head(nn.Module):
         q = self.query(x)
 
         # compute attention scores ("affinities")
-        weights = q @ k.transpose(-2,-1) * C**-0.5                          # (B,T,C) @ (B,C,T) --> (B,T,T)
+        weights = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5                          # (B,T,C) @ (B,C,T) --> (B,T,T)
         weights = weights.masked_fill(self.tril[:T,:T] == 0, float('-inf')) # (B,T,T)
         weights = F.softmax(weights, dim=-1)                                # (B,T,T)
         weights = self.dropout(weights)
@@ -117,7 +114,8 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(d_model, d_model)
+        # self.proj = nn.Linear(d_model, d_model)
+        self.proj = nn.Linear(head_size * num_heads, d_model)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -164,25 +162,38 @@ class GPT(nn.Module):
         super().__init__()
 
         # each token directly reads off the logits for the next token from a lookup table
+        # self.token_embedding_model = nn.Embedding(vocab_size, d_model)
+        # self.position_embedding_table = nn.Embedding(block_size, d_model)
+
         self.toked_modelding_table = nn.Embedding(vocab_size, d_model)
         self.positiod_modelding_table = nn.Embedding(block_size, d_model)
+
 
         # Blocks, Layer Norm, Self-Attention Heads, Feed Forward Netwrok
         self.blocks = nn.Sequential(*[Block(d_model, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(d_model)
-        # self.sa_heads = MultiHeadAttention(4, d_model// 4)
-        # self.ffwd = FeedForward(d_model)
 
         # we need a linear layer to go from token embeddings to logits
         self.lm_head = nn.Linear(d_model, vocab_size)
+
+        # better init, not covered in the original GPT video, but important, will cover in followup video
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
-        toked_modeldings = self.toked_modelding_table(idx)                                      # (B,T,C)
+        token_embeddings = self.toked_modelding_table(idx)                                      # (B,T,C)
         positional_embeddings = self.positiod_modelding_table(torch.arange(T, device=device))   # (T,C)
-        x = positional_embeddings + toked_modeldings                                            #(B,T,C)
+        x = positional_embeddings + token_embeddings                                            #(B,T,C)
         x = self.blocks(x)
         x = self.ln_f(x)
         logits = self.lm_head(x)                                                                # (B,T,vocab_size)
@@ -231,7 +242,7 @@ if __name__ == "__main__":
     print(f"{num_params} million parameters") 
 
     losses = None
-    checkpoint = torch.load('models/hp/orwell_1675925471_300_loss4.61.pt') 
+    checkpoint = torch.load('models/hp/harrypotter_1675929710_2200_loss1.29.pt') 
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     losses = checkpoint['losses']
@@ -252,7 +263,7 @@ if __name__ == "__main__":
             print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
         
 
-        if ((iter % 150 == 0 or iter == num_iterations - 1) and iter > 0):
+        if ((iter % 200 == 0 or iter == num_iterations - 1) and iter > 0):
             fn = f"models/hp/harrypotter_{timestamp}_{iter}_loss{losses['val']:.2f}.pt"
             torch.save({
             'model_state_dict': model.state_dict(),
@@ -273,11 +284,12 @@ if __name__ == "__main__":
         optimizer.step()
 
         et = time.monotonic() - st
-
-        if iter % 200 == 0:
+        
+        if iter % 20 == 0:
             print(f"{et*1000:.2f} ms  {1/et:.2f} its/sec, train_loss: {loss:.2f} ")
 
+        # if iter % 200 == 0:
             # generate from the model
-            context = torch.zeros((1, 1), dtype=torch.long, device=device)
-            print(decode(model.generate(context, max_new_tokens=50)[0].tolist()))
+            # context = torch.zeros((1, 1), dtype=torch.long, device=device)
+            # print(decode(model.generate(context, max_new_tokens=50)[0].tolist()))
 

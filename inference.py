@@ -4,7 +4,9 @@ from torch.nn import functional as F
 from tqdm import tqdm
 import time
 import os
-from babyGPT import GPT, decode
+# from babyGPT import GPT, decode
+from harryPotterGPT import GPT, decode
+
 
 if __name__ == "__main__":
 
@@ -28,7 +30,7 @@ if __name__ == "__main__":
     model = GPT()
     model.to(device)
 
-    checkpoint = torch.load('models/v4_1675811956_1950_loss1.56.pt')
+    checkpoint = torch.load('models/hp/harrypotter_1675929710_2200_loss1.29.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model.eval()
