@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 import time
 import os
-from shakespeare_gpt_model import GPT, decode
+from babyGPT import GPT, decode
 
 if __name__ == "__main__":
 

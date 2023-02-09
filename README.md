@@ -2,6 +2,8 @@
 
 "Unleashing boundless Shakespearean prose with the power of a transformer-based language model, trained on the complete works of The Bard himself."
 
+```babyGPT.py``` - 10.788929 million parameter generative decoder-only transformer based off of Andrej Karpathy's lecture.
+
 ### Output from model_v0
 
 ![v4 output](v4_output.png)

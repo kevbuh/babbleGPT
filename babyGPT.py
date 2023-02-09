@@ -24,7 +24,7 @@ eval_interval = 500
 learning_rate = 3e-4
 
 eval_iterations = 200
-n_embed = 384
+d_model = 384
 n_head = 6
 n_layer = 6
 dropout = 0.2
@@ -85,9 +85,9 @@ class Head(nn.Module):
 
     def __init__(self, head_size):
         super().__init__()
-        self.key = nn.Linear(n_embed, head_size, bias=False)
-        self.query = nn.Linear(n_embed, head_size, bias=False)
-        self.value = nn.Linear(n_embed, head_size, bias=False)
+        self.key = nn.Linear(d_model, head_size, bias=False)
+        self.query = nn.Linear(d_model, head_size, bias=False)
+        self.value = nn.Linear(d_model, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(dropout)
@@ -115,7 +115,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(n_embed, n_embed)
+        self.proj = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -127,12 +127,12 @@ class MultiHeadAttention(nn.Module):
 class FeedForward(nn.Module):
     """ Transformer Feed Forward NN """
 
-    def __init__(self, n_embed):
+    def __init__(self, d_model):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embed, 4 * n_embed),
+            nn.Linear(d_model, 4 * d_model),
             nn.ReLU(),
-            nn.Linear(4 * n_embed, n_embed),
+            nn.Linear(4 * d_model, d_model),
             nn.Dropout(dropout)
         )
 
@@ -142,13 +142,13 @@ class FeedForward(nn.Module):
 class Block(nn.Module):
     """ Single Transformer Block """
 
-    def __init__(self, n_embed, n_head):
+    def __init__(self, d_model, n_head):
         super().__init__()
-        head_size = n_embed // n_head
+        head_size = d_model // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
-        self.ffwd = FeedForward(n_embed)
-        self.ln1 = nn.LayerNorm(n_embed)
-        self.ln2 = nn.LayerNorm(n_embed)
+        self.ffwd = FeedForward(d_model)
+        self.ln1 = nn.LayerNorm(d_model)
+        self.ln2 = nn.LayerNorm(d_model)
 
 
     def forward(self, x):
@@ -162,25 +162,25 @@ class GPT(nn.Module):
         super().__init__()
 
         # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, n_embed)
-        self.position_embedding_table = nn.Embedding(block_size, n_embed)
+        self.toked_modelding_table = nn.Embedding(vocab_size, d_model)
+        self.positiod_modelding_table = nn.Embedding(block_size, d_model)
 
         # Blocks, Layer Norm, Self-Attention Heads, Feed Forward Netwrok
-        self.blocks = nn.Sequential(*[Block(n_embed, n_head=n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embed)
-        self.sa_heads = MultiHeadAttention(4, n_embed// 4)
-        self.ffwd = FeedForward(n_embed)
+        self.blocks = nn.Sequential(*[Block(d_model, n_head=n_head) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(d_model)
+        # self.sa_heads = MultiHeadAttention(4, d_model// 4)
+        # self.ffwd = FeedForward(d_model)
 
         # we need a linear layer to go from token embeddings to logits
-        self.lm_head = nn.Linear(n_embed, vocab_size)
+        self.lm_head = nn.Linear(d_model, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
-        token_embeddings = self.token_embedding_table(idx)                                      # (B,T,C)
-        positional_embeddings = self.position_embedding_table(torch.arange(T, device=device))   # (T,C)
-        x = positional_embeddings + token_embeddings                                            #(B,T,C)
+        toked_modeldings = self.toked_modelding_table(idx)                                      # (B,T,C)
+        positional_embeddings = self.positiod_modelding_table(torch.arange(T, device=device))   # (T,C)
+        x = positional_embeddings + toked_modeldings                                            #(B,T,C)
         x = self.blocks(x)
         x = self.ln_f(x)
         logits = self.lm_head(x)                                                                # (B,T,vocab_size)
@@ -225,11 +225,14 @@ if __name__ == "__main__":
     model = GPT().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+    num_params = sum(p.numel() for p in model.parameters())/1e6
+    print(f"{num_params} million parameters") 
+
     losses = None
-    checkpoint = torch.load('models/v4_1675811956_1950_loss1.56.pt')
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    losses = checkpoint['losses']
+    # checkpoint = torch.load('models/v4_1675811956_1950_loss1.56.pt') 
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # losses = checkpoint['losses']
 
     # you can add tqdm() here
     for iter in range(num_iterations):
